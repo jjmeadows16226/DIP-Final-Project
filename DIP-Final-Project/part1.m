@@ -48,7 +48,7 @@ function part1(inFilename, csvFilename, outOverlayFilename)
     %
     % These values should roughly match the sizes of dark centers in the image.
     rMin = 15;
-    rMax = 70;
+    rMax = 60;
 
     % imfindcircles looks for circular shapes in the edge image.
     % 'ObjectPolarity','dark'  -> we are looking for dark circles on a lighter background
@@ -62,7 +62,7 @@ function part1(inFilename, csvFilename, outOverlayFilename)
     [centers, radii] = imfindcircles( ...
         BWedge, [rMin rMax], ...
         'ObjectPolarity', 'dark', ...
-        'Sensitivity', 0.92, ...
+        'Sensitivity', 0.90, ...
         'EdgeThreshold', 0.12);
 
     fprintf('Raw dark-circle detections: %d\n', size(centers,1));
@@ -101,7 +101,7 @@ function part1(inFilename, csvFilename, outOverlayFilename)
         % 0.35 chosen empirically:
         %   - lower value = require darker centers (may reject some true centers)
         %   - higher value = allow lighter centers (may introduce more false positives)
-        if centerDarkness > 0.35
+        if centerDarkness > 0.25
             keep(k) = false;            % not dark enough -> discard this detection
         end
     end
@@ -112,6 +112,57 @@ function part1(inFilename, csvFilename, outOverlayFilename)
 
     fprintf('Filtered dark-center detections: %d\n', size(centers,1));
 
+        %% --- Additional filter: require yellow petals around the dark center ---
+
+    % Define YELLOW detection thresholds (tweakable)
+    yellowMinR = 0.30;   % minimum red channel intensity
+    yellowMinG = 0.30;   % minimum green channel intensity
+    yellowMaxB = 0.70;   % maximum blue channel intensity (yellow has low blue)
+
+    % If you want to use HSV instead:
+    % yellowHueMin = 0.10;  
+    % yellowHueMax = 0.20;
+
+    keep2 = true(size(centers,1),1);
+
+    for k = 1:size(centers,1)
+
+        cx = round(centers(k,1));
+        cy = round(centers(k,2));
+        r  = round(radii(k));
+
+        % --- Sample a ring around the dark center ---
+        ringInner = round(r * 1.2);     % just outside the black center
+        ringOuter = round(r * 2.2);     % inside the yellow petal region
+
+        % Build a ring mask
+        rr = max(1, cy - ringOuter) : min(H, cy + ringOuter);
+        cc = max(1, cx - ringOuter) : min(W, cx + ringOuter);
+
+        [XX,YY] = meshgrid(cc, rr);
+        d2 = (XX - cx).^2 + (YY - cy).^2;
+
+        ringMask = (d2 >= ringInner^2) & (d2 <= ringOuter^2);
+
+        R = I(rr,cc,1);
+        G = I(rr,cc,2);
+        B = I(rr,cc,3);
+
+        % Identify yellow pixels via RGB criteria
+        yellowMask = (R >= yellowMinR) & (G >= yellowMinG) & (B <= yellowMaxB);
+
+        percentYellow = 100 * sum(yellowMask(:) & ringMask(:)) / sum(ringMask(:));
+
+        % Require at least 8–15% yellow in the ring (tweakable)
+        if percentYellow < 10
+            keep2(k) = false;
+        end
+    end
+
+    centers = centers(keep2,:);
+    radii   = radii(keep2);
+
+    fprintf('After yellow-petal check: %d\n', size(centers,1));
 
     %% --- Estimate full flower radius from center radius ---
     % fullRadii is used for drawing big circles that represent the whole flower
