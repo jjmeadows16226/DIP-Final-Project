@@ -1,0 +1,22 @@
+Labeled Coneflowers Info
+
+Counted:                      293
+
+Occluded (Blue):              51
+  - Flower obstructed,
+    hidden in shadow, or
+    majority of center
+    hidden.
+
+Highly Occluded (Pink):       17
+  - Majority of flower
+    out of frame of hidden
+    by other flowers. Only
+    a portion of petals
+    visible and presence is
+    greatly inferred.
+
+Identifiable (Red):           293 - 51 - 17 = 225
+  - Flowers that our program  → ±2 flowers  = [223, 227]
+    should be capable of
+    locating
