@@ -3,6 +3,7 @@ clc;
 close all;
 
 I = imread('/Users/moisesgomez/Developer/DIP_FinalProject/DIP-Final-Project/IMG_4951.png');
+% I = imread('/Users/moisesgomez/Downloads/IMG_8154.jpeg');
 
 tic
 hsvI = rgb2hsv(I);
@@ -63,8 +64,11 @@ disks_filtered = disks_filtered & (1-edgeThreshold);
 
 disks_filtered(shadows) = 0;
 
-roundness = bwdist(Gmag > 100) > 10;
-disks_filtered(roundness) = 0;
+% roundness = bwdist(Gmag > 100) > 10;
+% disks_filtered(roundness) = 0;
+
+disks_filtered = imgaussfilt(double(disks_filtered), 3) > 0.3;
+
 %% Label binary regions and filter
 [L, numRegions] = bwlabel(disks_filtered);
 all_areas = accumarray(L(L > 0), 1, [numRegions 1]);
@@ -106,10 +110,12 @@ filledMask = imfill(filtered_copy, 'holes');
 
 %% BEGIN
 
-[centers_i1, radii_i1, centroids_i1] = dip_findfiltercircles(filledMask, [30 50], 0.94, 0.4, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0, 1, 0, 1, 0, 0.3]);
+[centers_i1, radii_i1, centroids_i1] = dip_findfiltercircles(filledMask, [30 50], 0.95, 0.4, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0, 1, 0, 1, 0, 0.6, 0, 1, -1, 0.1]);
+[centers_i1_merged, radii_i1_merged, centroids_i1_merged] = dip_mergecircles(centers_i1, radii_i1, centroids_i1, 0.6, 25);
+
 
 % Supress found circles in original image
-mask = dip_createcirclemask(centers_i1, radii_i1, 1.1, [h,w]);
+mask = dip_createcirclemask(centers_i1_merged, radii_i1_merged, 1.1, [h,w]);
 filledMask = filledMask & ~mask;
 
 %{
@@ -133,15 +139,17 @@ end
 filteredRegions = out;
 %}
 
-% [centers_i2_initial, radii_i2_initial] = imfindcircles(filledMask, [20 45], 'Sensitivity', 0.95);
-[centers_i2, radii_i2, centroids_i2] = dip_findfiltercircles(filledMask, [20 45], 0.92, 1, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0, 0.5, 0, 1, 0, 0.9]);
-[centers_i2_merged, radii_i2_merged] = dip_mergecircles(centers_i2, radii_i2, centroids_i2, 0.6, 25);
+pbinary(filledMask)
+
+% [centers_i2_initial, radii_i2_initial] = imfindcircles(filledMask, [20 45], 'Sensitivity', 0.93);                                                                    
+[centers_i2, radii_i2, centroids_i2] = dip_findfiltercircles(filledMask, [20 45], 0.93, 1, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0, 0.5, 0, 1, 0, 1, 0, 1, 0.02, 1, -1, 1]);
+[centers_i2_merged, radii_i2_merged, centroids_i2_merged] = dip_mergecircles(centers_i2, radii_i2, centroids_i2, 0.6, 25);
 
 % Supress found circles in original image
 mask = dip_createcirclemask(centers_i2_merged, radii_i2_merged, 1.1, [h,w]);
 filledMask = filledMask & ~mask;
 
-[centers_i3, radii_i3, centroids_i3] = dip_findfiltercircles(filledMask, [25 50], 0.96, 1, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0,1, 0.3, 1, 0, 1, 0.4, 1]);
+[centers_i3, radii_i3, centroids_i3] = dip_findfiltercircles(filledMask, [20 35], 0.94, 1, V, filledMask, greenish_pixels, greenChannel-blueChannel, [20, 92, 92, 20], [0, 0.5, 0, 1, 0, 1, 0, 1, 0.02, 1, -1, 1]);
 toc
 
 %% Overlay found circles on image
@@ -170,13 +178,41 @@ hold on
 viscircles(centers_i3, radii_i3, 'LineWidth', 3);
 hold off
 
-centers_total = [centers_i1; centers_i2_merged; centers_i3];
-radii_total   = [radii_i1; radii_i2_merged; radii_i3];
+centers_total = [centers_i1_merged; centers_i2_merged; centers_i3];
+radii_total   = [radii_i1_merged; radii_i2_merged; radii_i3];
+centroids_total = [centroids_i1_merged; centroids_i2_merged; centroids_i3];
+
+[centers_total_merged, radii_total_merged, ~] = dip_mergecircles(centers_total, radii_total, centroids_total, 0.6, 25);
 
 % Total Circles
 figure('Name', 'TOTAL')
 imshow(rgbImage, [])
-title(sprintf('Number of Circles: %d', size(radii_total,1)))
+title(sprintf('Number of Circles: %d', size(radii_total_merged,1)))
 hold on
-viscircles(centers_total, radii_total, 'LineWidth', 3, 'Color', [0 0 1]);
+viscircles(centers_total_merged, radii_total_merged, 'LineWidth', 3, 'Color', [0 0 1]);
+hold off
+
+
+%% Overlay mask in red over orginal image
+[~, finalNum] = bwlabel(filtered_copy);
+mask = logical(filtered_copy);
+R(mask) = 0;
+G(mask) = 0;
+B(mask) = 255;
+
+overlay = cat(3, R, G, B);
+
+figure
+imshow(overlay, [])
+title(finalNum)
+
+
+[a, b] = part1(rgbImage, [0 0.15], [0.17 1], [20 50], 80, 0.98, 1000, [60 3000], [0.95 0.93 0.94]);
+
+% Total Circles Standalone Function
+figure('Name', 'TOTAL Standalone')
+imshow(rgbImage, [])
+title(sprintf('Number of Circles: %d', size(b,1)))
+hold on
+viscircles(a, b, 'LineWidth', 3, 'Color', [0 1 0]);
 hold off

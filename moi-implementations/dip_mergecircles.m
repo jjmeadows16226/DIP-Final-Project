@@ -1,6 +1,4 @@
-function [centers_merged, radii_merged] = dip_mergecircles(centers, radii, centroids, reduction, distThreshold)
-
-
+function [centers_merged, radii_merged, centroids_merged] = dip_mergecircles(centers, radii, centroids, reduction, distThreshold)
     N = length(radii);
 
     radii = radii .* reduction;
@@ -48,6 +46,7 @@ function [centers_merged, radii_merged] = dip_mergecircles(centers, radii, centr
     radii = radii ./ reduction;
 
     % Remove them
-    centers_merged = centers(~toDelete, :);
-    radii_merged   = radii(~toDelete);
+    centers_merged   = centers(~toDelete, :);
+    radii_merged     = radii(~toDelete);
+    centroids_merged = centroids(~toDelete, :);
 end
