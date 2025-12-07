@@ -1,209 +1,190 @@
 function part2(inFilename, csvFilename, outLabelFilename)
-% PART 2 – Detect and classify price & barcode tags using Hough + color
+% PART 2 – Detect and classify price & barcode tags
 %
 % Usage:
 %   part2('ptag_b.png','g03_part2.csv','g03_part2_labels.png');
 %
-% CSV format:
+% CSV format (one line per detected tag):
 %   <mask#, ul_row, ul_col, lr_row, lr_col, tag_type>
-% where tag_type: 0 = barcode (white background), 1 = price (gray background)
+% where tag_type: 0 = barcode (white), 1 = price (gray)
 
     clc; close all;
 
-    %% ---------------------------------------------------------------
+    %==================================================================
     % 1) Load image
-    % ---------------------------------------------------------------
-    I = im2double(imread(inFilename));
-    Igray = rgb2gray(I);
+    %==================================================================
+    I      = im2double(imread(inFilename));   % RGB image in [0,1]
+    Igray  = rgb2gray(I);
     [H, W] = size(Igray);
-
-    % HSV for color-based cues (tags are bright + low saturation)
-    Ihsv = rgb2hsv(I);
-    S = Ihsv(:,:,2);
-    V = Ihsv(:,:,3);
 
     figure; imshow(I);
     title('Original price / barcode tag image');
 
-    %% ---------------------------------------------------------------
-    % 2) Brightness-based candidate mask (loose)
-    % ---------------------------------------------------------------
-    Ieq = adapthisteq(Igray);          % local contrast enhancement
+    %==================================================================
+    % 2) Color-based mask for white / gray tags (HSV + RGB)
+    %    We want nearly neutral, bright rectangles.
+    %==================================================================
+    hsvI = rgb2hsv(I);
+    S    = hsvI(:,:,2);
+    V    = hsvI(:,:,3);
 
-    seTop   = strel('disk', 15);
-    Itophat = imtophat(Ieq, seTop);    % bright objects on darker background
+    R = I(:,:,1);
+    G = I(:,:,2);
+    B = I(:,:,3);
 
-    T = graythresh(Itophat);
-    brightMask = Itophat > T;
-    brightMask = brightMask | (Itophat > 0.6*T);  % loosen a bit
+    % --- Tunable color thresholds ---
+    satMax   = 0.40;  % low saturation (near gray)
+    valMin   = 0.55;  % fairly bright
+    rgbDelta = 0.10;  % channels within ±0.10 of each other
 
-    brightMask = imclearborder(brightMask);
+    neutralHSV  = (S < satMax) & (V > valMin);
+    neutralRGB  = (abs(R-G) < rgbDelta) & ...
+                  (abs(R-B) < rgbDelta) & ...
+                  (abs(G-B) < rgbDelta);
 
-    %% ---------------------------------------------------------------
-    % 2b) Edge-based candidate mask (for rectangular shapes)
-    % ---------------------------------------------------------------
-    E = edge(Ieq,'canny',0.12,1.5);            % slightly lower threshold
+    tagColorMask = neutralHSV & neutralRGB;
 
-    E = imdilate(E, strel('rectangle',[3 3])); % thicken edges
-
-    % Close gaps horizontally & vertically
-    E = imclose(E, strel('rectangle',[5 15]));
-    E = imclose(E, strel('rectangle',[15 5]));
-
-    % Fill closed loops
-    edgeFill = imfill(E,'holes');
-
-    edgeFill = bwareaopen(edgeFill, 100);      % remove very small blobs
-    edgeFill = imclearborder(edgeFill);
-
-    figure; imshow(edgeFill);
-    title('Edge-based candidate regions');
-
-    %% ---------------------------------------------------------------
-    % 2c) Color-based candidate mask (bright & low saturation)
-    % ---------------------------------------------------------------
-    tagColorMask = (S < 0.45) & (V > 0.55);    % white/gray-ish, quite bright
-    tagColorMask = imopen(tagColorMask, strel('rectangle',[3 3]));
-    tagColorMask = imclearborder(tagColorMask);
+    % light morphology cleanup
+    tagColorMask = imopen( tagColorMask,  strel('disk',2));
+    tagColorMask = imclose(tagColorMask,  strel('disk',3));
+    tagColorMask = bwareaopen(tagColorMask, 50);
 
     figure; imshow(tagColorMask);
-    title('Color-based candidate regions (bright, low-sat)');
+    title('HSV+RGB tag color mask');
 
-    %% ---------------------------------------------------------------
-    % 3) Combined candidate mask (VERY broad)
-    % ---------------------------------------------------------------
-    candMask = brightMask | edgeFill | tagColorMask;
-    candMask = imopen(candMask, strel('rectangle',[3 3])); % light cleanup
+    %==================================================================
+    % 3) Local rectangle support from edges
+    %==================================================================
+    edgeMask = edge(Igray, 'canny', [], 1.0);
 
-    figure; imshow(candMask);
-    title('Combined bright + edge + color candidate mask');
+    % Remove border-connected edges to avoid a giant central region
+    edgeMask = imclearborder(edgeMask);
 
-    %% ---------------------------------------------------------------
-    % 4) Label raw components and measure basic properties
-    % ---------------------------------------------------------------
-    [Lraw, numRaw] = bwlabel(candMask);
+    % Slight dilation so edges join up (horizontal + vertical)
+    edgeMask = imdilate(edgeMask, strel('line',3,0)) | ...
+               imdilate(edgeMask, strel('line',3,90));
+
+    % Fill closed edge loops → local "solid" shapes
+    filledEdges = imfill(edgeMask, 'holes');
+
+    figure; imshow(filledEdges);
+    title('Filled edge regions (local rectangles)');
+
+    %==================================================================
+    % 4) Combine color + local rectangles → candidate mask
+    %==================================================================
+    candidateMask = filledEdges & tagColorMask;
+
+    % remove tiny blobs and do light opening
+    candidateMask = bwareaopen(candidateMask, 200);
+    candidateMask = imopen(candidateMask, strel('rectangle',[3 5]));
+
+    figure; imshow(candidateMask);
+    title('Candidate tag regions after rectangle + color');
+
+    %==================================================================
+    % 5) Label and measure regions
+    %==================================================================
+    [Lraw, numRaw] = bwlabel(candidateMask);
+
     props = regionprops(Lraw, Igray, ...
-        'Area','BoundingBox','Eccentricity','Extent');
+        'Area',        ...
+        'BoundingBox', ...
+        'Extent',      ...
+        'Solidity');
 
-    %% ---------------------------------------------------------------
-    % 5) Hough-based filtering: keep regions that look roughly rectangular
-    % ---------------------------------------------------------------
-    L            = zeros(H, W, 'uint16');   % final label image
+    % --- Geometric constraints (tags are mid-size, axis-aligned rectangles) ---
+    minTagArea   = 1200;   % reject very small blobs
+    maxTagArea   = 45000;  % ignore huge product fronts
+
+    minTagWidth  = 35;
+    maxTagWidth  = 350;
+    minTagHeight = 15;
+    maxTagHeight = 140;
+
+    minAspect    = 1.2;    % width / height; tags wider than tall
+    maxAspect    = 7.0;
+
+    minExtent    = 0.60;   % how full the bounding box is
+    minSolidity  = 0.80;   % how convex / solid
+
+    % --- Photometric constraints inside each bbox ---
+    muGrayMin        = 0.55;  % tags are fairly bright
+    sdGrayMax        = 0.18;  % roughly uniform
+    fracColorMaskMin = 0.50;  % at least half the bbox is tag-colored
+
+    %==================================================================
+    % 6) Filter to get likely tags
+    %==================================================================
+    L            = zeros(H, W, 'uint16'); % final label image
     labelCounter = 0;
-    tagBB        = [];                      % Nx4 [x y w h]
-    tagMean      = [];                      % Nx1 mean intensity
+    tagBB        = [];                    % [x,y,w,h] per tag
+    tagMeanV     = [];                    % mean V (brightness) per tag
 
     for i = 1:numRaw
+
+        % ---------- Basic geometry ----------
         A   = props(i).Area;
-        ecc = props(i).Eccentricity;
+        bb  = props(i).BoundingBox;  % [x y w h]
         ext = props(i).Extent;
-        bb  = props(i).BoundingBox;        % [x, y, width, height]
-        w0  = bb(3);
-        h0  = bb(4);
-        ar  = w0 / max(h0, eps);           % aspect ratio (width/height)
+        sol = props(i).Solidity;
 
-        % --- VERY loose geometric pre-filter ------------------------ %%% TUNABLE
-        if A < 1000 || A > 80000          % size: drop only really tiny/huge blobs
-            continue;
-        end
+        w0 = bb(3);
+        h0 = bb(4);
+        ar = w0 / max(h0, eps);      % width / height
 
-        if ext < 0.12                     % require just a little fill inside box
-            continue;
-        end
+        if A  < minTagArea   || A  > maxTagArea,    continue; end
+        if w0 < minTagWidth  || w0 > maxTagWidth,   continue; end
+        if h0 < minTagHeight || h0 > maxTagHeight,  continue; end
+        if ar < minAspect    || ar > maxAspect,     continue; end
+        if ext < minExtent,                         continue; end
+        if sol < minSolidity,                       continue; end
 
-        if ecc > 0.999                    % reject almost-perfect lines only
-            continue;
-        end
+        % ---------- Extract bbox safely ----------
+        x0 = max(1, round(bb(1)));
+        y0 = max(1, round(bb(2)));
+        x1 = min(W, x0 + round(w0) - 1);
+        y1 = min(H, y0 + round(h0) - 1);
 
-        if ar < 0.5 || ar > 16            % very broad range of rectangles
-            continue;
-        end
+        patchGray  = Igray(y0:y1, x0:x1);
+        patchV     = V    (y0:y1, x0:x1);
+        patchMask  = tagColorMask(y0:y1, x0:x1);
 
-        % --- Extract patch for Hough & photometric checks -----------
-        x0 = round(bb(1));  y0 = round(bb(2));
-        w1 = round(bb(3));  h1 = round(bb(4));
+        muGray        = mean(patchGray(:));
+        sdGray        = std (patchGray(:));
+        fracColorMask = mean(patchMask(:));
 
-        x1 = max(1, x0);
-        y1 = max(1, y0);
-        x2 = min(W, x0 + w1 - 1);
-        y2 = min(H, y0 + h1 - 1);
+        % ---------- Photometric checks ----------
+        if muGray        < muGrayMin,        continue; end
+        if sdGray        > sdGrayMax,        continue; end
+        if fracColorMask < fracColorMaskMin, continue; end
 
-        patchGray  = Igray(y1:y2, x1:x2);
-        patchMask  = (Lraw(y1:y2, x1:x2) == i);   % this component only
-        patchEdges = edge(patchGray,'canny',0.10,1.5);
-
-        patchEdges = patchEdges & patchMask;
-
-        if nnz(patchEdges) < 20           % need some edges                    %%% TUNABLE
-            continue;
-        end
-
-        %% ---------------- Hough transform on patch ------------------
-        [Hh, theta, rho] = hough(patchEdges);
-        if max(Hh(:)) == 0
-            continue;
-        end
-
-        % detect up to 20 strong lines in this patch
-        P = houghpeaks(Hh, 20, 'Threshold', 0.10*max(Hh(:)));          %%% TUNABLE
-
-        lines = houghlines(patchEdges, theta, rho, P, ...
-                           'FillGap', 15, ...                          %%% TUNABLE
-                           'MinLength', max(4, round(min(size(patchEdges))/10))); %%%
-
-        % Require at least one reasonably strong line structure
-        if numel(lines) < 1                                            %%% TUNABLE
-            continue;
-        end
-
-        %% ---------------- Photometric & color check -----------------
-        mu       = mean(patchGray(:));            % brightness
-        sigma    = std(patchGray(:));             % texture / variation
-        patchSat = S(y1:y2, x1:x2);               % saturation
-        meanSat  = mean(patchSat(:));
-
-        % Tags are usually reasonably bright and fairly low-saturation.
-        if mu < 0.10                               % allow slightly darker tags %%% TUNABLE
-            continue;
-        end
-
-        % Allow plenty of texture; only reject extremely noisy patches.
-        if sigma > 0.40                            % even more permissive       %%% TUNABLE
-            continue;
-        end
-
-        % Very soft saturation check: reject only very vivid-colored blobs
-        if meanSat > 0.50                          % allow more saturation      %%% TUNABLE
-            continue;
-        end
-
-        %% ---------------- Accept as tag -----------------------------
+        % ---------- Accept this region as a tag ----------
         labelCounter = labelCounter + 1;
 
-        % Fill bounding box with this label in final label image
-        L(y1:y2, x1:x2) = labelCounter;
+        L(y0:y1, x0:x1) = labelCounter;
 
-        tagBB(labelCounter,:)   = [x1, y1, x2-x1+1, y2-y1+1]; %#ok<AGROW>
-        tagMean(labelCounter,1) = mu;                         %#ok<AGROW>
+        tagBB(labelCounter,:)  = [x0, y0, x1 - x0 + 1, y1 - y0 + 1]; %#ok<AGROW>
+        tagMeanV(labelCounter) = mean(patchV(:));                    %#ok<AGROW>
     end
 
     nTags = labelCounter;
-    fprintf('Number of tags after broad Hough + color filtering: %d\n', nTags);
+    fprintf('Number of potential tags after rectangle filter: %d\n', nTags);
 
-    %% ---------------------------------------------------------------
-    % 6) Classify: barcode (0, white) vs price (1, gray)
-    % ---------------------------------------------------------------
-    tagType = zeros(nTags,1);    % default 0 = barcode
+    %==================================================================
+    % 7) Classify: barcode (0, white) vs price (1, gray)
+    %==================================================================
+    tagType = zeros(nTags, 1);  % default 0 = barcode
 
     if nTags > 0
-        thr = 0.5*(min(tagMean) + max(tagMean));  % mid-point threshold
+        thr = 0.5 * (min(tagMeanV) + max(tagMeanV));   % simple mid-threshold
         % darker tags → gray price labels (1)
-        tagType(tagMean < thr) = 1;
+        tagType(tagMeanV < thr) = 1;
     end
 
-    %% ---------------------------------------------------------------
-    % 7) Save label image & overlay for sanity check
-    % ---------------------------------------------------------------
+    %==================================================================
+    % 8) Save label image & overlay
+    %==================================================================
     rgbLabel = label2rgb(L, 'jet', 'k', 'shuffle');
     imwrite(rgbLabel, outLabelFilename);
 
@@ -212,29 +193,30 @@ function part2(inFilename, csvFilename, outLabelFilename)
 
     figure; imshow(I); hold on;
     for k = 1:nTags
-        bb = tagBB(k,:);
-        rectangle('Position', bb, 'EdgeColor','cyan','LineWidth',1);
+        rectangle('Position', tagBB(k,:), ...
+                  'EdgeColor', 'cyan', ...
+                  'LineWidth', 1);
     end
-    title(sprintf('Detected potential tags (Hough + color): %d', nTags));
+    title(sprintf('Detected potential tags (rectangle search): %d', nTags));
     hold off;
 
-    %% ---------------------------------------------------------------
-    % 8) Write CSV: mask#, ul_row, ul_col, lr_row, lr_col, tag_type
-    % ---------------------------------------------------------------
+    %==================================================================
+    % 9) Write CSV: mask#, ul_row, ul_col, lr_row, lr_col, tag_type
+    %==================================================================
     fid = fopen(csvFilename, 'w');
     if fid == -1
         error('Could not open CSV file: %s', csvFilename);
     end
 
     for k = 1:nTags
-        bb = tagBB(k,:);             % [x1, y1, w, h]
+        bb = tagBB(k,:);        % [x1,y1,w,h]
         ul_col = bb(1);
         ul_row = bb(2);
         lr_col = bb(1) + bb(3) - 1;
         lr_row = bb(2) + bb(4) - 1;
 
         fprintf(fid, '%d,%d,%d,%d,%d,%d\n', ...
-            k, ul_row, ul_col, lr_row, lr_col, tagType(k));
+                k, ul_row, ul_col, lr_row, lr_col, tagType(k));
     end
 
     fclose(fid);
