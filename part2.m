@@ -94,19 +94,19 @@ function part2(inFilename, csvFilename, outLabelFilename)
         'Solidity');
 
     % --- Geometric constraints (tags are mid-size, axis-aligned rectangles) ---
-    minTagArea   = 1200;   % reject very small blobs
-    maxTagArea   = 45000;  % ignore huge product fronts
+    minTagArea   = 600;   % reject very small blobs
+    maxTagArea   = 60000;  % ignore huge product fronts
 
-    minTagWidth  = 35;
-    maxTagWidth  = 350;
-    minTagHeight = 15;
-    maxTagHeight = 140;
+    minTagWidth  = 40;
+    maxTagWidth  = 1000;
+    minTagHeight = 60;
+    maxTagHeight = 1000;
 
-    minAspect    = 1.2;    % width / height; tags wider than tall
-    maxAspect    = 7.0;
+    minAspect    = 1.0;    % width / height; tags wider than tall
+    maxAspect    = 8.0;
 
-    minExtent    = 0.60;   % how full the bounding box is
-    minSolidity  = 0.80;   % how convex / solid
+    minExtent    = 0.50;   % how full the bounding box is
+    minSolidity  = 0.70;   % how convex / solid
 
     % --- Photometric constraints inside each bbox ---
     muGrayMin        = 0.55;  % tags are fairly bright
