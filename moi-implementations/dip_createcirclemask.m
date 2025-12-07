@@ -1,5 +1,6 @@
-function mask = dip_createcirclemask(centers, radii, scale, sz)
-    mask = false(sz(1), sz(2));
+function [mask, labelMask] = dip_createcirclemask(centers, radii, scale, sz)
+    mask      = false(sz(1), sz(2));
+    labelMask = zeros(sz(1), sz(2));
     
     for k = 1:size(centers,1)
         cx = round(centers(k,1));
@@ -12,6 +13,10 @@ function mask = dip_createcirclemask(centers, radii, scale, sz)
  
         dot = false(length(rowRange), length(colRange));
         dot(ceil(end/2), ceil(end/2)) = true;
-        mask(rowRange, colRange) = mask(rowRange, colRange) | bwdist(dot) <= radii(k) .* scale;
+
+        circleRegion = bwdist(dot) <= radii(k) .* scale;
+
+        mask(rowRange, colRange) = mask(rowRange, colRange) | circleRegion;
+        labelMask(rowRange, colRange) = labelMask(rowRange, colRange) .* (~circleRegion) + k * circleRegion;
     end
 end

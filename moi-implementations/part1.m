@@ -1,4 +1,4 @@
-function [centers, radii] = part1(I, Hrange, Vrange, flowerRadius, minROISize, maxROIEccentricity, maxROIORCA, sizeConvexHull, sensitivities)
+function [centers, radii, outputImage] = part1(I, outputFileName, Hrange, Vrange, flowerRadius, minROISize, maxROIEccentricity, maxROIORCA, sizeConvexHull, sensitivities)
     %% Initialize variables and extract color channels
     hsvImage = rgb2hsv(I);
     rgbImage = I;
@@ -109,5 +109,18 @@ function [centers, radii] = part1(I, Hrange, Vrange, flowerRadius, minROISize, m
     centroids_total = [centroids_i1_merged; centroids_i2_merged; centroids_i3];
 
     [centers, radii, ~] = dip_mergecircles(centers_total, radii_total, centroids_total, 0.6, 25);
+
+    %% Generate output image and CSV file
+    [~, LL] = dip_createcirclemask(centers, radii, 1, size(I));
+    outputImage = label2rgb(LL, 'jet', 'k', 'shuffle');
+
+    N = size(radii, 1);
+    mask_numbers = (1:N)';
+    
+    % Build table
+    output = [mask_numbers, centers, radii];
+    
+    % Write to CSV
+    writematrix(output, outputFileName);
 
 end
